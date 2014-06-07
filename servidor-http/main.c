@@ -152,9 +152,10 @@ void web(int fd, int hit)
 	while (	(ret = read(file_fd, buffer, BUFSIZE)) > 0 ) {
 		(void)write(fd,buffer,ret);
 	}
-	sleep(1);	/* allow socket to drain before signalling the socket is closed */
-	close(fd);
-	exit(1);
+    
+	//sleep(1);	/* allow socket to drain before signalling the socket is closed */
+	//close(fd);
+	//exit(1);
 }
 
 //Muestra la ayuda
