@@ -58,9 +58,10 @@ struct {
 typedef enum{ITERATIVE, FORKED, THREADS, DAEMON} strategy_t;
 
 //Variables globales
-int port_number = DEFAULT_PORT_NUMBER; //Número de Puerto de escucha
-static  char  	      path_root[PATH_MAX] = CURRENT_DIRECTORY;
-static  char  	      strategy_name[STRATEGY_MAX];
+int port_number =   DEFAULT_PORT_NUMBER; //Número de Puerto de escucha
+static  char        path_root[PATH_MAX] = CURRENT_DIRECTORY;
+static  char        strategy_name[STRATEGY_MAX];
+static  char        log_file[PATH_MAX];
 
 
 void logger(int type, char *s1, char *s2, int socket_fd)
@@ -82,7 +83,7 @@ void logger(int type, char *s1, char *s2, int socket_fd)
         case LOG: (void)sprintf(logbuffer," INFO: %s:%s:%d",s1, s2,socket_fd); break;
 	}
 	/* No checks here, nothing can be done with a failure anyway */
-	if((fd = open("nweb.log", O_CREAT| O_WRONLY | O_APPEND,0644)) >= 0) {
+	if((fd = open(log_file, O_CREAT| O_WRONLY | O_APPEND,0644)) >= 0) {
 		(void)write(fd,logbuffer,strlen(logbuffer));
 		(void)write(fd,"\n",1);
 		(void)close(fd);
@@ -126,7 +127,7 @@ void web(int fd, int hit)
 		(void)strcpy(buffer,"GET /index.html");
     
 	/* work out the file type and check we support it */
-	buflen=strlen(buffer);
+	buflen=(int) strlen(buffer);
 	fstr = (char *)0;
 	for(i=0;extensions[i].ext != 0;i++) {
 		len = strlen(extensions[i].ext);
@@ -143,7 +144,7 @@ void web(int fd, int hit)
 	logger(LOG,"SEND",&buffer[5],hit);
 	len = (long)lseek(file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
     (void)lseek(file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
-    (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, fstr); /* Header + a blank line */
+    (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: servidor-http/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, fstr); /* Header + a blank line */
 	logger(LOG,"Header",buffer,hit);
 	(void)write(fd,buffer,strlen(buffer));
     
@@ -214,6 +215,9 @@ strategy_t configure_server(int argc,char *argv[])
 	strategy_t operation = ITERATIVE; //Operacion por defecto
 	//s_start(&total_uptime);
     
+    //Seteo archivo de log
+    strcpy(log_file, (argv[0]));
+    strcat(log_file,".log");
 	while((option = getopt(argc,argv,"?:p:d:itfe:"))!=-1)
 	{
 		switch (option)
@@ -279,53 +283,54 @@ int main(int argc, char **argv)
     
     
 	server_operation = (strategy_t)configure_server(argc,argv);
-    if (check_settings()) {
-        printf("Todo OK");
-        exit(0);
-    } else {
+    if (!check_settings()) {
         show_help();
         exit(0);
+    } else {
+        /* Become deamon + unstopable and no zombies children (= no wait()) */
+        //TODAVIA NO
+        //if(fork() != 0)
+        //	return 0; /* parent returns OK to shell */
+        //(void)signal(SIGCLD, SIG_IGN); /* ignore child death */
+        //(void)signal(SIGHUP, SIG_IGN); /* ignore terminal hangups */
+        //for(i=0;i<32;i++)
+        //	(void)close(i);		/* close open files */
+        //(void)setpgrp();		/* break away from process group */
+        
+        logger(LOG,"Iniciando servidor",argv[0],getpid());
+        /* setup the network socket */
+        if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
+            logger(ERROR, "system call","socket",0);
+        //port = atoi(argv[1]);
+        
+        
+        serv_addr.sin_family = AF_INET;
+        serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        serv_addr.sin_port = htons(port_number);
+        if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
+            logger(ERROR,"system call","bind",0);
+        if( listen(listenfd,64) <0)
+            logger(ERROR,"system call","listen",0);
+        for(hit=1; ;hit++) {
+            length = sizeof(cli_addr);
+            if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
+                logger(ERROR,"system call","accept",0);
+            //if((pid = fork()) < 0) {
+            //    logger(ERROR,"system call","fork",0);
+            //}
+            //else {
+            //    if(pid == 0) { 	/* child */
+            //        (void)close(listenfd);
+                    web(socketfd,hit); /* never returns */
+            //    } else { 	/* parent */
+            //        (void)close(socketfd);
+            //    }
+            //}
+        }
     }
     
 
-	/* Become deamon + unstopable and no zombies children (= no wait()) */
-    //TODAVIA NO
-	//if(fork() != 0)
-	//	return 0; /* parent returns OK to shell */
-	//(void)signal(SIGCLD, SIG_IGN); /* ignore child death */
-	//(void)signal(SIGHUP, SIG_IGN); /* ignore terminal hangups */
-	//for(i=0;i<32;i++)
-	//	(void)close(i);		/* close open files */
-	//(void)setpgrp();		/* break away from process group */
-	logger(LOG,"nweb starting",argv[1],getpid());
-	/* setup the network socket */
-	if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
-		logger(ERROR, "system call","socket",0);
-	//port = atoi(argv[1]);
 
-    
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serv_addr.sin_port = htons(port_number);
-	if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
-		logger(ERROR,"system call","bind",0);
-	if( listen(listenfd,64) <0)
-		logger(ERROR,"system call","listen",0);
-	for(hit=1; ;hit++) {
-		length = sizeof(cli_addr);
-		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
-			logger(ERROR,"system call","accept",0);
-		if((pid = fork()) < 0) {
-			logger(ERROR,"system call","fork",0);
-		}
-		else {
-			if(pid == 0) { 	/* child */
-				(void)close(listenfd);
-				web(socketfd,hit); /* never returns */
-			} else { 	/* parent */
-				(void)close(socketfd);
-			}
-		}
-	}
+
 }
 
