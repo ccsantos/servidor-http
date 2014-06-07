@@ -57,6 +57,16 @@
             ReferencedContainer = "container:servidor-http.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "-t"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-p 8080 -d &quot;/Users/matiasiglesias/Dropbox/Facultad/Redes y Transmisio&#x301;n de Datos/Pra&#x301;ctica/TP2/nweb/raiz&quot;"
+            isEnabled = "YES">
+         </CommandLineArgument>
+      </CommandLineArguments>
       <AdditionalOptions>
       </AdditionalOptions>
    </LaunchAction>
