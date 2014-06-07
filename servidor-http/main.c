@@ -243,7 +243,7 @@ strategy_t configure_server(int argc,char *argv[])
 				option_count++;
 				break;
 			case 'f':
-				strcpy(strategy_name,"Fork(Using processes)");
+				strcpy(strategy_name,"Forked");
 				operation = FORKED;
 				option_count++;
 				break;
@@ -298,12 +298,10 @@ int main(int argc, char **argv)
         //	(void)close(i);		/* close open files */
         //(void)setpgrp();		/* break away from process group */
         
-        logger(LOG,"Iniciando servidor",argv[0],getpid());
+        logger(LOG,"Iniciando servidor",strategy_name,getpid());
         /* setup the network socket */
         if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
             logger(ERROR, "system call","socket",0);
-        //port = atoi(argv[1]);
-        
         
         serv_addr.sin_family = AF_INET;
         serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -316,17 +314,30 @@ int main(int argc, char **argv)
             length = sizeof(cli_addr);
             if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
                 logger(ERROR,"system call","accept",0);
-            //if((pid = fork()) < 0) {
-            //    logger(ERROR,"system call","fork",0);
-            //}
-            //else {
-            //    if(pid == 0) { 	/* child */
-            //        (void)close(listenfd);
-                    web(socketfd,hit); /* never returns */
-            //    } else { 	/* parent */
-            //        (void)close(socketfd);
-            //    }
-            //}
+            switch (server_operation) {
+                case ITERATIVE:
+                    printf("Atiendo ITERATIVE\n");
+                    web(socketfd,hit); //Atiendo solicitud
+                    break;
+                case FORKED:
+                    printf("Atiendo FORKED\n");
+                    if((pid = fork()) < 0) {
+                        logger(ERROR,"system call","fork",0);
+                        exit(1);
+                    } else {
+                        if(pid == 0) { 	/* Hijo */
+                            web(socketfd,hit);//Atiendo solicitud
+                        } else { 	/* Padre */
+                            (void)close(socketfd);
+                        }
+                    }
+                    break;
+                default:
+                    printf("Estrategia %d aún no implementada\n", server_operation);
+                    exit(2);
+                    break;
+            }
+
         }
     }
     

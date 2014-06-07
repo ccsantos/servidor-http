@@ -4,8 +4,20 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
-		<key>servidor-http.xcscheme</key>
+		<key>Copy of Copy of servidor-http Iterativo.xcscheme</key>
 		<dict>
+			<key>orderHint</key>
+			<integer>2</integer>
+		</dict>
+		<key>servidor-http Forked.xcscheme</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
+		<key>servidor-http Iterativo.xcscheme</key>
+		<dict>
+			<key>isShown</key>
+			<true/>
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
