@@ -42,6 +42,10 @@
 #define True                        1
 #define False                       0
 #define STRATEGY_MAX                20
+#define	INTERVAL                    5
+#define SIZE                        20
+
+
 struct {
 	char *ext;
 	char *filetype;
@@ -67,6 +71,75 @@ static  char    strategy_name[STRATEGY_MAX];
 static  char    log_file[PATH_MAX];
 int             hit;                                        //Contador de hits
 
+struct { /* estructura para estadisticas */
+	pthread_mutex_t	est_mutex;
+	unsigned int	est_concount; 	/* contador de conexiones activas */
+	unsigned int	est_contotal;	/* contador de conexiones completadas */
+	unsigned long	est_contime;    /* tiempo de una conexion */
+	unsigned long	est_byteincount;  /* contador de bytes de entrada */
+    unsigned long	est_byteoutcount;  /* contador de bytes de salida */
+} estadisticas;
+
+/* imprime las estadisticas. */
+void impestadisticas(void) {
+	time_t	ahora;
+    
+    struct sockaddr_in dest;   /* info del socket acerca de la maquina que se conecta. */
+    struct sockaddr_in serv;  /* info del socket del server                           */
+    int mysocket, consocket, pid;
+    int socksize = sizeof(struct sockaddr_in);
+    char str[SIZE],revstr[SIZE];
+    int n,i,j=0;
+
+
+
+    memset(&serv, 0, sizeof(serv));       /* se popne a cero los campos de la estructura */
+    serv.sin_family = AF_INET;           /* seteo a que el tipo de conexion sea TCP/IP  */
+    serv.sin_addr.s_addr = INADDR_ANY;  /* seteo que escuche por cualquier interface   */
+    serv.sin_port = htons(port_number + 1);    /* seteo el puerto del servidor                */
+
+    mysocket = socket(AF_INET, SOCK_STREAM, 0);
+    
+    bind(mysocket, (struct sockaddr *)&serv, sizeof(struct sockaddr));
+    
+    listen(mysocket, 1);
+
+	while (1) {
+        //Me quedo escuchando
+        
+        
+		//(void) sleep(INTERVAL);
+		consocket = accept(mysocket, (struct sockaddr *)&dest, &socksize);
+        n = recv(consocket, str, sizeof(str), 0);
+
+		printf("Conexion desde %s\n", inet_ntoa(dest.sin_addr));
+
+        
+		(void) pthread_mutex_lock(&estadisticas.est_mutex);
+		ahora = time(0);
+		(void) printf("--- %s", ctime(&ahora));
+		(void) printf("%-32s: %u\n", "Conexiones concurrentes", estadisticas.est_concount);
+		(void) printf("%-32s: %u\n", "Conexiones completadas",	estadisticas.est_contotal);
+        
+		if (estadisticas.est_contotal) {
+			(void) printf("%-32s: %.2f (secs)\n", "Promedio de conexiones completadas",
+                          (float)estadisticas.est_contime / (float)estadisticas.est_contotal);
+			(void) printf("%-32s: %.2f\n", "Promedio de bytes recibidos",
+                          (float)estadisticas.est_byteincount / (float)(estadisticas.est_contotal +	estadisticas.est_concount));
+            (void) printf("%-32s: %.2f\n", "Promedio de bytes enviados",
+                          (float)estadisticas.est_byteoutcount / (float)(estadisticas.est_contotal +	estadisticas.est_concount));
+		}
+		(void) printf("%-32s: %lu\n\n", "Total de bytes recibidos", estadisticas.est_byteincount);
+        (void) printf("%-32s: %lu\n\n", "Total de bytes enviados", estadisticas.est_byteoutcount);
+		(void) pthread_mutex_unlock(&estadisticas.est_mutex);
+        
+        (void)write(consocket, "HTTP/1.1 200 OK\nContent-Length: 140\nConnection: close\nContent-Type: text/html\n\n<html><head>\n<title>Estadisticas</title>\n</head><body>\n<h1>Estadisticas</h1>\nLas estadisticas ya se han mostrado por consola.\n</body></html>\n",231);
+        
+        sleep(1);	/* allow socket to drain before signalling the socket is closed */
+        close(consocket);
+        
+	}
+}
 
 void logger(int type, char *s1, char *s2, int socket_fd)
 {
@@ -109,7 +182,20 @@ void web(int fd)
 	char * fstr;
 	static char buffer[BUFSIZE+1]; /* static so zero filled */
     
+    //Estadísticas
+	time_t	comienzo;
+    
+	comienzo = time(0); /* retorna el tiempo actual en formato condensado */
+    
+	(void) pthread_mutex_lock(&estadisticas.est_mutex); /* solicita acceso al mutex, el hilo se bloquea hasta su obtención. */
+	estadisticas.est_concount++;
+	(void) pthread_mutex_unlock(&estadisticas.est_mutex);
+
+    
+    
 	ret =read(fd,buffer,BUFSIZE); 	/* read Web request in one go */
+    
+    
 	if(ret == 0 || ret == -1) {	/* read failure stop now */
 		logger(FORBIDDEN,"failed to read browser request","",fd);
 	}
@@ -158,10 +244,24 @@ void web(int fd)
 	logger(LOG,"Header",buffer,hit);
 	(void)write(fd,buffer,strlen(buffer));
     
+    //Guardo estadística de bytes recibidos y enviados
+	(void) pthread_mutex_lock(&estadisticas.est_mutex);
+	estadisticas.est_byteincount += ret;
+    estadisticas.est_byteoutcount += len;
+	(void) pthread_mutex_unlock(&estadisticas.est_mutex);
+
+    
 	/* send file in 8KB block - last block may be smaller */
 	while (	(ret = read(file_fd, buffer, BUFSIZE)) > 0 ) {
 		(void)write(fd,buffer,ret);
 	}
+    
+    //Guardo estadística de tiempo
+	(void) pthread_mutex_lock(&estadisticas.est_mutex);
+	estadisticas.est_contime += time(0) - comienzo;
+	estadisticas.est_concount--;
+	estadisticas.est_contotal++;
+	(void) pthread_mutex_unlock(&estadisticas.est_mutex);
     
 	//sleep(1);	/* allow socket to drain before signalling the socket is closed */
 	//close(fd);
@@ -293,6 +393,8 @@ int main(int argc, char **argv)
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
     
     //Hilos
+    pthread_t thread_id; //Hilo para atención en Estrategia Threads
+
 	pthread_t       th; /* identificador del hilo */
 	pthread_attr_t	ta; /* define los atributos del hilo */
     
@@ -301,8 +403,11 @@ int main(int argc, char **argv)
     /* PTHREAD_CREATE_JOINABLE (no desconectado)
      PTHREAD_CREATE_DETACHED (desconectado)  */
     
+    (void) pthread_mutex_init(&estadisticas.est_mutex, 0); /* crea un mutex. */
     
-    pthread_t thread_id;
+	if (pthread_create(&th, &ta, (void * (*)(void *))impestadisticas, 0) < 0)
+		printf("ERROR pthread_create(infestadistica).\n");
+
 
 
     
@@ -357,7 +462,7 @@ int main(int argc, char **argv)
                         exit(1);
                     } else {
                         if(pid == 0) { 	/* Hijo */
-                            web(socketfd);//Atiendo solicitud
+                            web(socketfd); //Atiendo solicitud
                         } else { 	/* Padre */
                             (void)close(socketfd);
                         }
@@ -367,20 +472,18 @@ int main(int argc, char **argv)
                     printf("Atiendo THREAD\n");
                     if (pthread_create(&thread_id, NULL, (void * (*)(void *))web, (void *)socketfd )<0)
                         printf("ERROR pthread_create.\n");
-
-                    printf("Volvi del hilo");
                     break;
                 case DAEMON:
-                    printf("Me vuelvo demonio");
+                    printf("Atiendo DAEMON\n");
 
                     if((pid = fork()) < 0) {
                         logger(ERROR,"system call","fork",0);
                     }
                     else {
-                        if(pid == 0) { 	/* child */
+                        if(pid == 0) { 	/* Hijo */
                             (void)close(listenfd);
-                            web(socketfd); /* never returns */
-                        } else { 	/* parent */
+                            web(socketfd); //Atiendo solicitud
+                        } else { 	/* Padre */
                             (void)close(socketfd);
                         }
                     }
