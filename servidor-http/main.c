@@ -458,11 +458,11 @@ int main(int argc, char **argv)
             logger(LOG, "Aceptando conexion", inet_ntoa(cli_addr.sin_addr),socketfd);
             switch (server_operation) {
                 case ITERATIVE:
-                    printf("Atiendo ITERATIVE\n");
+                    printf("Atiendo ITERATIVE hit %d\n", hit);
                     web(socketfd); //Atiendo solicitud
                     break;
                 case FORKED:
-                    printf("Atiendo FORKED\n");
+                    printf("Atiendo FORKED hit %d\n", hit);
                     if((pid = fork()) < 0) {
                         logger(ERROR,"system call","fork",0);
                         exit(1);
@@ -475,12 +475,12 @@ int main(int argc, char **argv)
                     }
                     break;
                 case THREADS:
-                    printf("Atiendo THREAD\n");
+                    printf("Atiendo THREAD hit %d\n", hit);
                     if (pthread_create(&thread_id, NULL, (void * (*)(void *))web, (void *)socketfd )<0)
                         printf("ERROR pthread_create.\n");
                     break;
                 case DAEMON:
-                    printf("Atiendo DAEMON\n");
+                    printf("Atiendo DAEMON hit %d\n", hit);
 
                     if((pid = fork()) < 0) {
                         logger(ERROR,"system call","fork",0);
