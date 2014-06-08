@@ -36,7 +36,7 @@
 
 //Constantes
 #define URI_MAX                     PATH_MAX //Definido en limits.h
-#define CURRENT_DIRECTORY           "."
+#define CURRENT_DIRECTORY           "/Users/matiasiglesias/Desktop/raiz"
 #define DEFAULT_PORT_NUMBER         8080
 #define DEFAULT_STRATEGY            ITERATIVE
 #define True                        1
@@ -73,18 +73,24 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 	int fd ;
 	char logbuffer[BUFSIZE*2];
     
+    //Fecha y hora actual
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    char ahora[20];
+    sprintf(ahora, "%d/%d/%d %d:%d:%d", tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900,  tm.tm_hour, tm.tm_min, tm.tm_sec);
+    
 	switch (type) {
         case ERROR: (void)sprintf(logbuffer,"ERROR: %s:%s Errno=%d exiting pid=%d",s1, s2, errno,getpid());
             break;
         case FORBIDDEN:
             (void)write(socket_fd, "HTTP/1.1 403 Forbidden\nContent-Length: 185\nConnection: close\nContent-Type: text/html\n\n<html><head>\n<title>403 Forbidden</title>\n</head><body>\n<h1>Forbidden</h1>\nThe requested URL, file type or operation is not allowed on this simple static file webserver.\n</body></html>\n",271);
-            (void)sprintf(logbuffer,"FORBIDDEN: %s:%s",s1, s2);
+            (void)sprintf(logbuffer,"%s: FORBIDDEN: %s:%s",ahora, s1, s2);
             break;
         case NOTFOUND:
             (void)write(socket_fd, "HTTP/1.1 404 Not Found\nContent-Length: 136\nConnection: close\nContent-Type: text/html\n\n<html><head>\n<title>404 Not Found</title>\n</head><body>\n<h1>Not Found</h1>\nThe requested URL was not found on this server.\n</body></html>\n",224);
-            (void)sprintf(logbuffer,"NOT FOUND: %s:%s",s1, s2);
+            (void)sprintf(logbuffer,"%s: NOT FOUND: %s:%s. Path %s",ahora, s1, s2, path_root);
             break;
-        case LOG: (void)sprintf(logbuffer," INFO: %s:%s:%d",s1, s2,socket_fd); break;
+        case LOG: (void)sprintf(logbuffer,"%s: INFO: %s:%s:%d", ahora, s1, s2, socket_fd); break;
 	}
 	/* No checks here, nothing can be done with a failure anyway */
 	if((fd = open(log_file, O_CREAT| O_WRONLY | O_APPEND,0644)) >= 0) {
@@ -306,17 +312,23 @@ int main(int argc, char **argv)
         show_help();
         exit(0);
     } else {
-        /* Become deamon + unstopable and no zombies children (= no wait()) */
-        //TODAVIA NO
-        //if(fork() != 0)
-        //	return 0; /* parent returns OK to shell */
-        //(void)signal(SIGCLD, SIG_IGN); /* ignore child death */
-        //(void)signal(SIGHUP, SIG_IGN); /* ignore terminal hangups */
-        //for(i=0;i<32;i++)
-        //	(void)close(i);		/* close open files */
-        //(void)setpgrp();		/* break away from process group */
-        
         logger(LOG,"Iniciando servidor",strategy_name,getpid());
+        //Verifico si tengo que correr como demonio
+        
+        if (server_operation == DAEMON) {
+            /* Become deamon + unstopable and no zombies children (= no wait()) */
+            printf("Me vuelvo un demonio");
+            if(fork() != 0)
+                return 0; /* parent returns OK to shell */
+            (void)signal(SIGCLD, SIG_IGN); /* ignore child death */
+            (void)signal(SIGHUP, SIG_IGN); /* ignore terminal hangups */
+            for(int i=0;i<32;i++)
+                (void)close(i);		/* close open files */
+            (void)setpgrp();		/* break away from process group */
+        }
+
+        
+        
         /* setup the network socket */
         if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
             logger(ERROR, "system call","socket",0);
@@ -357,6 +369,21 @@ int main(int argc, char **argv)
                         printf("ERROR pthread_create.\n");
 
                     printf("Volvi del hilo");
+                    break;
+                case DAEMON:
+                    printf("Me vuelvo demonio");
+
+                    if((pid = fork()) < 0) {
+                        logger(ERROR,"system call","fork",0);
+                    }
+                    else {
+                        if(pid == 0) { 	/* child */
+                            (void)close(listenfd);
+                            web(socketfd); /* never returns */
+                        } else { 	/* parent */
+                            (void)close(socketfd);
+                        }
+                    }
                     break;
                 default:
                     printf("Estrategia %s (%d) aún no implementada\n", strategy_name, server_operation);
