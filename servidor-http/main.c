@@ -20,10 +20,13 @@
 #include <string.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+
 #define VERSION     1
 #define BUFSIZE  8096
 #define ERROR      42
@@ -58,10 +61,11 @@ struct {
 typedef enum{ITERATIVE, FORKED, THREADS, DAEMON} strategy_t;
 
 //Variables globales
-int port_number =   DEFAULT_PORT_NUMBER; //Número de Puerto de escucha
-static  char        path_root[PATH_MAX] = CURRENT_DIRECTORY;
-static  char        strategy_name[STRATEGY_MAX];
-static  char        log_file[PATH_MAX];
+int             port_number =   DEFAULT_PORT_NUMBER;        //Número de Puerto de escucha
+static  char    path_root[PATH_MAX] = CURRENT_DIRECTORY;
+static  char    strategy_name[STRATEGY_MAX];
+static  char    log_file[PATH_MAX];
+int             hit;                                        //Contador de hits
 
 
 void logger(int type, char *s1, char *s2, int socket_fd)
@@ -92,7 +96,7 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 }
 
 /* this is a child web server process, so we can exit on errors */
-void web(int fd, int hit)
+void web(int fd)
 {
 	int j, file_fd, buflen;
 	long i, ret, len;
@@ -276,11 +280,25 @@ strategy_t configure_server(int argc,char *argv[])
 
 int main(int argc, char **argv)
 {
-	int pid, listenfd, socketfd, hit;
+	int pid, listenfd, socketfd;
     strategy_t server_operation;
 	socklen_t length;
 	static struct sockaddr_in cli_addr; /* static = initialised to zeros */
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
+    
+    //Hilos
+	pthread_t       th; /* identificador del hilo */
+	pthread_attr_t	ta; /* define los atributos del hilo */
+    
+	(void) pthread_attr_init(&ta); /* inicializa los atributos del hilo a su valor por defecto. */
+	(void) pthread_attr_setdetachstate(&ta, PTHREAD_CREATE_DETACHED); /* establece el atributo detachstate al valor: PTHREAD_CREATE_DETACHED. */
+    /* PTHREAD_CREATE_JOINABLE (no desconectado)
+     PTHREAD_CREATE_DETACHED (desconectado)  */
+    
+    
+    pthread_t thread_id;
+
+
     
     
 	server_operation = (strategy_t)configure_server(argc,argv);
@@ -314,10 +332,11 @@ int main(int argc, char **argv)
             length = sizeof(cli_addr);
             if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
                 logger(ERROR,"system call","accept",0);
+            logger(LOG, "Aceptando conexion", inet_ntoa(cli_addr.sin_addr),socketfd);
             switch (server_operation) {
                 case ITERATIVE:
                     printf("Atiendo ITERATIVE\n");
-                    web(socketfd,hit); //Atiendo solicitud
+                    web(socketfd); //Atiendo solicitud
                     break;
                 case FORKED:
                     printf("Atiendo FORKED\n");
@@ -326,14 +345,22 @@ int main(int argc, char **argv)
                         exit(1);
                     } else {
                         if(pid == 0) { 	/* Hijo */
-                            web(socketfd,hit);//Atiendo solicitud
+                            web(socketfd);//Atiendo solicitud
                         } else { 	/* Padre */
                             (void)close(socketfd);
                         }
                     }
                     break;
+                case THREADS:
+                    printf("Atiendo THREAD\n");
+                    if (pthread_create(&thread_id, NULL, (void * (*)(void *))web, (void *)socketfd )<0)
+                        printf("ERROR pthread_create.\n");
+
+                    printf("Volvi del hilo");
+                    break;
                 default:
-                    printf("Estrategia %d aún no implementada\n", server_operation);
+                    printf("Estrategia %s (%d) aún no implementada\n", strategy_name, server_operation);
+                    logger(ERROR,"Estrategia no implementada",strategy_name,server_operation);
                     exit(2);
                     break;
             }
