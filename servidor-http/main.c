@@ -66,6 +66,7 @@ typedef enum{ITERATIVE, FORKED, THREADS, DAEMON} strategy_t;
 
 //Variables globales
 int             port_number =   DEFAULT_PORT_NUMBER;        //Número de Puerto de escucha
+int             port_number_estadisticas =   DEFAULT_PORT_NUMBER + 1 ;        //Número de Puerto de escucha para las estadisticas
 static  char    path_root[PATH_MAX] = CURRENT_DIRECTORY;
 static  char    strategy_name[STRATEGY_MAX];
 static  char    log_file[PATH_MAX];
@@ -80,6 +81,9 @@ struct { /* estructura para estadisticas */
     unsigned long	est_byteoutcount;  /* contador de bytes de salida */
 } estadisticas;
 
+
+//Prototipos de funciones
+void logger(int , char *, char *, int);
 /* imprime las estadisticas. */
 void impestadisticas(void) {
 	time_t	ahora;
@@ -89,14 +93,14 @@ void impestadisticas(void) {
     int mysocket, consocket, pid;
     int socksize = sizeof(struct sockaddr_in);
     char str[SIZE],revstr[SIZE];
-    int n,i,j=0;
+    int n=0;
 
 
 
     memset(&serv, 0, sizeof(serv));       /* se popne a cero los campos de la estructura */
     serv.sin_family = AF_INET;           /* seteo a que el tipo de conexion sea TCP/IP  */
     serv.sin_addr.s_addr = INADDR_ANY;  /* seteo que escuche por cualquier interface   */
-    serv.sin_port = htons(port_number + 1);    /* seteo el puerto del servidor                */
+    serv.sin_port = htons(port_number_estadisticas);    /* seteo el puerto del servidor                */
 
     mysocket = socket(AF_INET, SOCK_STREAM, 0);
     
@@ -104,15 +108,15 @@ void impestadisticas(void) {
     
     listen(mysocket, 1);
 
-	while (1) {
+	while (True) {
         //Me quedo escuchando
         
         
 		//(void) sleep(INTERVAL);
 		consocket = accept(mysocket, (struct sockaddr *)&dest, &socksize);
-        n = recv(consocket, str, sizeof(str), 0);
+        n = (int) recv(consocket, str, sizeof(str), 0);
 
-		printf("Conexion desde %s\n", inet_ntoa(dest.sin_addr));
+        logger(LOG, "Atendiendo solicitud de Estadisticas", inet_ntoa(dest.sin_addr) , consocket);
 
         
 		(void) pthread_mutex_lock(&estadisticas.est_mutex);
@@ -190,11 +194,8 @@ void web(int fd)
 	(void) pthread_mutex_lock(&estadisticas.est_mutex); /* solicita acceso al mutex, el hilo se bloquea hasta su obtención. */
 	estadisticas.est_concount++;
 	(void) pthread_mutex_unlock(&estadisticas.est_mutex);
-
-    
     
 	ret =read(fd,buffer,BUFSIZE); 	/* read Web request in one go */
-    
     
 	if(ret == 0 || ret == -1) {	/* read failure stop now */
 		logger(FORBIDDEN,"failed to read browser request","",fd);
@@ -273,7 +274,7 @@ void show_help() {
     int i;
 
     (void) printf("servidor HTTP \t\tversion %d\n\n", VERSION);
-    (void) printf("Modo de uso: servidor_http [-p puerto] [-d directorio] [estrategia]\n");
+    (void) printf("Modo de uso: servidor_http [-p puerto] [-d directorio] [estrategia] [-s puerto_estadistica] \n");
     (void) printf("Parámtros:\n");
     (void) printf("\t-?\t\t Muestra esta ayuda\n");
     (void) printf("\t-p\t\t Puerto debe ser mayor a 60000 por razones de seguridad\n");
@@ -283,11 +284,13 @@ void show_help() {
     (void) printf("\t\t\t-t\tThreads (Hilos)\n");
     (void) printf("\t\t\t-f\tForked (Procesos)\n");
     (void) printf("\t\t\t-e\tDaemon (Demonio)\n");
+    (void) printf("\t-p\t\t Puerto para solicitar la impresión de estadisticas por consola\n");
 
     (void) printf("Parámetros por defecto:\n");
     (void) printf("\tpuerto:\t\t\t %d\n", DEFAULT_PORT_NUMBER);
     (void) printf("\tdirectorio:\t\t %s\n", CURRENT_DIRECTORY);
     (void) printf("\testrategia:\t\t %s\n", "ITERATIVE");
+    (void) printf("\tpuerto_estadistica:\t\t\t %s\n", "puerto + 1");
     
     (void) printf("\nExtenciones Soportadas:\n");
     for(i=0;extensions[i].ext != 0;i++)
@@ -329,7 +332,7 @@ strategy_t configure_server(int argc,char *argv[])
     //Seteo archivo de log
     strcpy(log_file, (argv[0]));
     strcat(log_file,".log");
-	while((option = getopt(argc,argv,"?:p:d:itfe:"))!=-1)
+	while((option = getopt(argc,argv,"?:p:d:s:itfe:"))!=-1)
 	{
 		switch (option)
 		{
@@ -361,6 +364,9 @@ strategy_t configure_server(int argc,char *argv[])
 				strcpy(strategy_name,"Daemon");
 				operation = DAEMON;
 				option_count++;
+				break;
+            case 's':
+				port_number_estadisticas = atoi(optarg);
 				break;
 			default:
 				printf("Error en los Parametros\n");
