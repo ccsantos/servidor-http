@@ -376,7 +376,7 @@ strategy_t configure_server(int argc,char *argv[])
 	if(option_count > 1)
 	{
 		printf("\nNo pases argumentos de mas de una Estrategia.\n");
-		exit(0);
+		exit(1);
 	}
 	
 	//if(!check_folder_exists(path_root)) exit(0);
@@ -388,7 +388,6 @@ strategy_t configure_server(int argc,char *argv[])
 	}
 	return operation;
 }
-
 
 int main(int argc, char **argv)
 {
@@ -413,11 +412,7 @@ int main(int argc, char **argv)
     
 	if (pthread_create(&th, &ta, (void * (*)(void *))impestadisticas, 0) < 0)
 		printf("ERROR pthread_create(infestadistica).\n");
-
-
-
-    
-    
+  
 	server_operation = (strategy_t)configure_server(argc,argv);
     if (!check_settings()) {
         show_help();
@@ -425,10 +420,9 @@ int main(int argc, char **argv)
     } else {
         logger(LOG,"Iniciando servidor",strategy_name,getpid());
         //Verifico si tengo que correr como demonio
-        
         if (server_operation == DAEMON) {
             /* Become deamon + unstopable and no zombies children (= no wait()) */
-            printf("Me vuelvo un demonio");
+            printf("Me vuelvo un demonio\n");
             if(fork() != 0)
                 return 0; /* parent returns OK to shell */
             (void)signal(SIGCLD, SIG_IGN); /* ignore child death */
@@ -438,8 +432,6 @@ int main(int argc, char **argv)
             (void)setpgrp();		/* break away from process group */
         }
 
-        
-        
         /* setup the network socket */
         if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
             logger(ERROR, "system call","socket",0);
@@ -460,6 +452,7 @@ int main(int argc, char **argv)
                 case ITERATIVE:
                     printf("Atiendo ITERATIVE hit %d\n", hit);
                     web(socketfd); //Atiendo solicitud
+                    close(socketfd); //Cierro socket
                     break;
                 case FORKED:
                     printf("Atiendo FORKED hit %d\n", hit);
@@ -500,12 +493,7 @@ int main(int argc, char **argv)
                     exit(2);
                     break;
             }
-
         }
     }
-    
-
-
-
 }
 
